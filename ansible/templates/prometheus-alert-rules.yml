@@ -1,0 +1,80 @@
+# ============================================================
+# templates/prometheus-alert-rules.yml
+# CPU & RAM alerts — fires email via AlertManager
+# ============================================================
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: node-resource-alerts
+  namespace: monitoring
+  labels:
+    release: monitoring    # must match the Helm release name
+spec:
+  groups:
+    - name: node.resource.alerts
+      interval: 1m
+      rules:
+        # ── CPU alerts ───────────────────────────────────────
+        - alert: HighCPUUsage
+          expr: |
+            (1 - avg by(instance)(rate(node_cpu_seconds_total{mode="idle"}[5m]))) * 100 > 80
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High CPU usage on {{ $labels.instance }}"
+            description: "CPU usage is {{ $value | printf \"%.1f\" }}% (threshold: 80%) for more than 5 minutes."
+
+        - alert: CriticalCPUUsage
+          expr: |
+            (1 - avg by(instance)(rate(node_cpu_seconds_total{mode="idle"}[5m]))) * 100 > 95
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "CRITICAL CPU usage on {{ $labels.instance }}"
+            description: "CPU usage is {{ $value | printf \"%.1f\" }}% (threshold: 95%) for more than 2 minutes."
+
+        # ── RAM alerts ───────────────────────────────────────
+        - alert: HighMemoryUsage
+          expr: |
+            (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 80
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High memory usage on {{ $labels.instance }}"
+            description: "Memory usage is {{ $value | printf \"%.1f\" }}% (threshold: 80%) for more than 5 minutes."
+
+        - alert: CriticalMemoryUsage
+          expr: |
+            (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 95
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "CRITICAL memory usage on {{ $labels.instance }}"
+            description: "Memory usage is {{ $value | printf \"%.1f\" }}% (threshold: 95%) for more than 2 minutes."
+
+        # ── Pod restart alert ────────────────────────────────
+        - alert: PodCrashLooping
+          expr: |
+            rate(kube_pod_container_status_restarts_total[15m]) * 60 * 15 > 3
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Pod crash-looping: {{ $labels.pod }}"
+            description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has restarted more than 3 times in 15 minutes."
+
+        # ── Disk alert ───────────────────────────────────────
+        - alert: DiskSpaceLow
+          expr: |
+            (1 - (node_filesystem_avail_bytes{fstype!="tmpfs"} / node_filesystem_size_bytes{fstype!="tmpfs"})) * 100 > 85
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Disk usage high on {{ $labels.instance }}"
+            description: "Disk {{ $labels.mountpoint }} is {{ $value | printf \"%.1f\" }}% full."

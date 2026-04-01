@@ -1,0 +1,98 @@
+# ============================================================
+# playbooks/deploy_app.yml
+# Deploy all microservices to the Kubernetes cluster
+# Run: ansible-playbook -i inventory/hosts.ini playbooks/deploy_app.yml
+# ============================================================
+
+---
+- name: Deploy Nodejs Microservices to Kubernetes
+  hosts: master
+  become: true
+  vars:
+    kubeconfig: /home/vagrant/.kube/config
+    k8s_manifests_dir: /home/vagrant/k8s
+
+  tasks:
+    - name: Create k8s manifests directory on master
+      file:
+        path: "{{ k8s_manifests_dir }}"
+        state: directory
+        owner: vagrant
+        group: vagrant
+
+    - name: Copy Kubernetes manifests to master
+      copy:
+        src: "{{ playbook_dir }}/../../k8s/"
+        dest: "{{ k8s_manifests_dir }}/"
+        owner: vagrant
+        group: vagrant
+
+    - name: Deploy MongoDB
+      become_user: vagrant
+      shell: |
+        kubectl apply -f {{ k8s_manifests_dir }}/mongodb-deployment.yml -n microservices
+        kubectl apply -f {{ k8s_manifests_dir }}/mongodb-svc.yml -n microservices
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Wait for MongoDB to be ready
+      become_user: vagrant
+      command: >
+        kubectl rollout status deployment/mongodb
+        -n microservices --timeout=120s
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Deploy RabbitMQ
+      become_user: vagrant
+      shell: |
+        kubectl apply -f {{ k8s_manifests_dir }}/rabbitmq-configmap.yml -n microservices
+        kubectl apply -f {{ k8s_manifests_dir }}/rabbitmq-statefulset.yml -n microservices
+        kubectl apply -f {{ k8s_manifests_dir }}/rabbitmq-service.yml -n microservices
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Wait for RabbitMQ to be ready
+      become_user: vagrant
+      command: >
+        kubectl rollout status statefulset/rabbitmq
+        -n microservices --timeout=180s
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Deploy application microservices
+      become_user: vagrant
+      shell: |
+        kubectl apply -f {{ k8s_manifests_dir }}/user-service-deployment.yml -n microservices
+        kubectl apply -f {{ k8s_manifests_dir }}/user-service-svc.yml -n microservices
+        kubectl apply -f {{ k8s_manifests_dir }}/task-service-deployment.yml -n microservices
+        kubectl apply -f {{ k8s_manifests_dir }}/task-service-svc.yml -n microservices
+        kubectl apply -f {{ k8s_manifests_dir }}/notification-service-deployment.yml -n microservices
+        kubectl apply -f {{ k8s_manifests_dir }}/notification-service-svc.yml -n microservices
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Deploy NGINX Ingress controller
+      become_user: vagrant
+      command: >
+        kubectl apply -f
+        https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.10.1/deploy/static/provider/cloud/deploy.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Deploy Ingress rules
+      become_user: vagrant
+      command: kubectl apply -f {{ k8s_manifests_dir }}/ingress.yml -n microservices
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Show all deployed resources
+      become_user: vagrant
+      command: kubectl get all -n microservices
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: deployed_resources
+
+    - name: Print deployed resources
+      debug:
+        var: deployed_resources.stdout_lines

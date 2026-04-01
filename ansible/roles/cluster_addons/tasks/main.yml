@@ -1,0 +1,58 @@
+# ============================================================
+# roles/cluster_addons/tasks/main.yml
+# Post-init cluster setup: namespace, metrics-server, labels
+# ============================================================
+
+---
+- name: Wait for all nodes to be Ready
+  become_user: vagrant
+  command: kubectl get nodes --no-headers
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+  register: nodes_output
+  until: nodes_output.stdout_lines | length == 3
+  retries: 30
+  delay: 15
+
+- name: Create application namespace
+  become_user: vagrant
+  command: kubectl create namespace microservices --dry-run=client -o yaml | kubectl apply -f -
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+
+- name: Create monitoring namespace
+  become_user: vagrant
+  command: kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+
+- name: Label worker nodes
+  become_user: vagrant
+  command: kubectl label node {{ item.name }} node-role.kubernetes.io/worker=worker --overwrite
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+  loop:
+    - { name: "k8s-worker-1" }
+    - { name: "k8s-worker-2" }
+
+- name: Install metrics-server
+  become_user: vagrant
+  shell: |
+    kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+    # Patch to allow insecure TLS (needed in local clusters)
+    kubectl patch deployment metrics-server -n kube-system \
+      --type='json' \
+      -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+
+- name: Verify cluster nodes
+  become_user: vagrant
+  command: kubectl get nodes -o wide
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+  register: cluster_nodes
+
+- name: Print cluster node status
+  debug:
+    var: cluster_nodes.stdout_lines

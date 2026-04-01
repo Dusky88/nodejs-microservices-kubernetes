@@ -1,0 +1,79 @@
+# ============================================================
+# roles/common/tasks/main.yml
+# Base system configuration applied to every node
+# ============================================================
+
+---
+- name: Update apt cache
+  apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install common packages
+  apt:
+    name:
+      - curl
+      - wget
+      - git
+      - vim
+      - net-tools
+      - htop
+      - unzip
+      - python3
+      - python3-pip
+      - apt-transport-https
+      - ca-certificates
+      - software-properties-common
+      - gnupg
+      - lsb-release
+    state: present
+
+- name: Disable swap immediately
+  command: swapoff -a
+  changed_when: false
+
+- name: Remove swap from /etc/fstab permanently
+  replace:
+    path: /etc/fstab
+    regexp: '^([^#].*\s+swap\s+.*)$'
+    replace: '# \1'
+
+- name: Load required kernel modules
+  modprobe:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - overlay
+    - br_netfilter
+
+- name: Persist kernel modules across reboots
+  copy:
+    dest: /etc/modules-load.d/k8s.conf
+    content: |
+      overlay
+      br_netfilter
+
+- name: Apply Kubernetes sysctl settings
+  sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: true
+  loop:
+    - { name: "net.bridge.bridge-nf-call-iptables",  value: "1" }
+    - { name: "net.bridge.bridge-nf-call-ip6tables", value: "1" }
+    - { name: "net.ipv4.ip_forward",                 value: "1" }
+
+- name: Set timezone to UTC
+  timezone:
+    name: UTC
+
+- name: Ensure /etc/hosts has all cluster nodes
+  lineinfile:
+    path: /etc/hosts
+    line: "{{ item }}"
+    state: present
+  loop:
+    - "192.168.56.10  k8s-master"
+    - "192.168.56.11  k8s-worker-1"
+    - "192.168.56.12  k8s-worker-2"

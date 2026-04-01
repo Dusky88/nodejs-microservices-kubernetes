@@ -1,0 +1,27 @@
+# ============================================================
+# group_vars/all.yml — Shared variables for all nodes
+# ============================================================
+
+# Kubernetes version
+k8s_version: "1.29"
+k8s_pkg_version: "1.29.0-1.1"
+
+# Container runtime
+containerd_version: "1.7.*"
+
+# CNI (Flannel)
+flannel_manifest: "https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml"
+
+# Pod network CIDR (must match Vagrantfile)
+pod_cidr: "10.244.0.0/16"
+
+# Master node IP
+master_ip: "192.168.56.10"
+
+# Docker Hub credentials (override via GitHub Actions secrets or env vars)
+dockerhub_username: "{{ lookup('env', 'DOCKERHUB_USERNAME') | default('your-dockerhub-user') }}"
+dockerhub_image_prefix: "{{ dockerhub_username }}/nms"
+
+# Project settings
+project_name: "nodejs-microservices"
+app_namespace: "microservices"

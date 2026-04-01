@@ -1,0 +1,118 @@
+# ============================================================
+# docker-compose.yml
+# Local development & testing for all 3 microservices
+# Usage: docker-compose up --build
+# ============================================================
+
+version: '3.8'
+
+services:
+
+  # ── MongoDB ─────────────────────────────────────────────────
+  mongodb:
+    image: mongo:6
+    container_name: mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - microservices-net
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── RabbitMQ ────────────────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - microservices-net
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── User Service ────────────────────────────────────────────
+  user-service:
+    build:
+      context: ./user-service
+      dockerfile: Dockerfile
+    image: dusky88/nms_user-service:latest
+    container_name: user-service
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      - MONGO_URI=mongodb://mongodb:27017/userdb
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
+      - PORT=3001
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - microservices-net
+
+  # ── Task Service ────────────────────────────────────────────
+  task-service:
+    build:
+      context: ./task-service
+      dockerfile: Dockerfile
+    image: dusky88/nms_task-service:latest
+    container_name: task-service
+    restart: unless-stopped
+    ports:
+      - "3002:3002"
+    environment:
+      - MONGO_URI=mongodb://mongodb:27017/taskdb
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
+      - PORT=3002
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - microservices-net
+
+  # ── Notification Service ─────────────────────────────────────
+  notification-service:
+    build:
+      context: ./notification-service
+      dockerfile: Dockerfile
+    image: dusky88/nms_notification-service:latest
+    container_name: notification-service
+    restart: unless-stopped
+    ports:
+      - "3003:3003"
+    environment:
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
+      - PORT=3003
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - microservices-net
+
+volumes:
+  mongodb_data:
+  rabbitmq_data:
+
+networks:
+  microservices-net:
+    driver: bridge

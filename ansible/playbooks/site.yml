@@ -1,0 +1,30 @@
+# ============================================================
+# site.yml — Master playbook — runs all roles in order
+# ============================================================
+
+---
+- name: "Phase 1 — Common setup on ALL nodes"
+  hosts: k8s_cluster
+  become: true
+  roles:
+    - common
+    - containerd
+    - kubernetes_base
+
+- name: "Phase 2 — Initialise Kubernetes master"
+  hosts: master
+  become: true
+  roles:
+    - kubernetes_master
+
+- name: "Phase 3 — Join worker nodes to the cluster"
+  hosts: workers
+  become: true
+  roles:
+    - kubernetes_worker
+
+- name: "Phase 4 — Install cluster add-ons (on master)"
+  hosts: master
+  become: true
+  roles:
+    - cluster_addons

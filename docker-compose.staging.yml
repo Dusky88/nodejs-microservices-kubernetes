@@ -1,0 +1,84 @@
+# ============================================================
+# docker-compose.staging.yml
+# Staging environment — uses pre-built images from Docker Hub
+# Usage: docker-compose -f docker-compose.staging.yml up -d
+# ============================================================
+
+version: '3.8'
+
+services:
+
+  mongodb:
+    image: mongo:6
+    container_name: mongodb-staging
+    restart: unless-stopped
+    volumes:
+      - mongodb_staging_data:/data/db
+    networks:
+      - microservices-staging-net
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq-staging
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    networks:
+      - microservices-staging-net
+
+  user-service:
+    image: dusky88/nms_user-service:staging
+    container_name: user-service-staging
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      - MONGO_URI=mongodb://mongodb-staging:27017/userdb
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq-staging:5672
+      - PORT=3001
+      - NODE_ENV=staging
+    depends_on:
+      - mongodb
+      - rabbitmq
+    networks:
+      - microservices-staging-net
+
+  task-service:
+    image: dusky88/nms_task-service:staging
+    container_name: task-service-staging
+    restart: unless-stopped
+    ports:
+      - "3002:3002"
+    environment:
+      - MONGO_URI=mongodb://mongodb-staging:27017/taskdb
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq-staging:5672
+      - PORT=3002
+      - NODE_ENV=staging
+    depends_on:
+      - mongodb
+      - rabbitmq
+    networks:
+      - microservices-staging-net
+
+  notification-service:
+    image: dusky88/nms_notification-service:staging
+    container_name: notification-service-staging
+    restart: unless-stopped
+    ports:
+      - "3003:3003"
+    environment:
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq-staging:5672
+      - PORT=3003
+      - NODE_ENV=staging
+    depends_on:
+      - rabbitmq
+    networks:
+      - microservices-staging-net
+
+volumes:
+  mongodb_staging_data:
+
+networks:
+  microservices-staging-net:
+    driver: bridge

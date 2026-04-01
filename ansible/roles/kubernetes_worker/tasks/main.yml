@@ -1,0 +1,33 @@
+# ============================================================
+# roles/kubernetes_worker/tasks/main.yml
+# Join worker nodes to the cluster using the saved token
+# ============================================================
+
+---
+- name: Check if node is already joined
+  stat:
+    path: /etc/kubernetes/kubelet.conf
+  register: node_already_joined
+
+- name: Copy join command from controller to worker
+  copy:
+    src: /tmp/k8s_join_command.sh
+    dest: /tmp/k8s_join_command.sh
+    mode: '0755'
+  when: not node_already_joined.stat.exists
+
+- name: Execute join command
+  command: bash /tmp/k8s_join_command.sh
+  when: not node_already_joined.stat.exists
+  register: join_result
+
+- name: Show join output
+  debug:
+    var: join_result.stdout_lines
+  when: join_result is defined and join_result.stdout_lines is defined
+
+- name: Enable and restart kubelet on worker
+  systemd:
+    name: kubelet
+    enabled: true
+    state: restarted

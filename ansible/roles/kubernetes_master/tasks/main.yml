@@ -1,0 +1,82 @@
+# ============================================================
+# roles/kubernetes_master/tasks/main.yml
+# kubeadm init + Flannel CNI + kubeconfig for vagrant user
+# ============================================================
+
+---
+- name: Check if cluster is already initialised
+  stat:
+    path: /etc/kubernetes/admin.conf
+  register: kubeadm_init_done
+
+- name: Initialise the Kubernetes control plane
+  command: >
+    kubeadm init
+      --apiserver-advertise-address={{ master_ip }}
+      --pod-network-cidr={{ pod_cidr }}
+      --node-name=k8s-master
+      --ignore-preflight-errors=NumCPU,Mem
+  when: not kubeadm_init_done.stat.exists
+  register: kubeadm_init_output
+
+- name: Create .kube directory for vagrant user
+  file:
+    path: /home/vagrant/.kube
+    state: directory
+    owner: vagrant
+    group: vagrant
+    mode: '0755'
+
+- name: Copy admin.conf to vagrant user
+  copy:
+    src: /etc/kubernetes/admin.conf
+    dest: /home/vagrant/.kube/config
+    remote_src: true
+    owner: vagrant
+    group: vagrant
+    mode: '0600'
+
+- name: Create .kube directory for root
+  file:
+    path: /root/.kube
+    state: directory
+    mode: '0755'
+
+- name: Copy admin.conf to root
+  copy:
+    src: /etc/kubernetes/admin.conf
+    dest: /root/.kube/config
+    remote_src: true
+    mode: '0600'
+
+- name: Apply Flannel CNI network plugin
+  become_user: vagrant
+  command: kubectl apply -f {{ flannel_manifest }}
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+
+- name: Wait for master node to become Ready
+  become_user: vagrant
+  command: kubectl get nodes k8s-master -o jsonpath='{.status.conditions[-1].type}'
+  environment:
+    KUBECONFIG: /home/vagrant/.kube/config
+  register: node_ready
+  until: node_ready.stdout == "Ready"
+  retries: 20
+  delay: 15
+
+- name: Generate worker join command
+  command: kubeadm token create --print-join-command
+  register: join_command_raw
+
+- name: Save join command to a shared fact file
+  copy:
+    dest: /tmp/k8s_join_command.sh
+    content: "{{ join_command_raw.stdout }}"
+    mode: '0755'
+
+- name: Fetch join command to Ansible controller
+  fetch:
+    src: /tmp/k8s_join_command.sh
+    dest: /tmp/k8s_join_command.sh
+    flat: true

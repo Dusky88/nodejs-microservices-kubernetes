@@ -1,0 +1,30 @@
+# ============================================================
+# .gitignore
+# ============================================================
+
+# Node
+node_modules/
+npm-debug.log*
+.env
+.env.local
+.env.staging
+.env.production
+
+# Vagrant
+.vagrant/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Kubernetes secrets
+kubeconfig
+*.kubeconfig
+
+# Backup files
+*.gz
+*.tar

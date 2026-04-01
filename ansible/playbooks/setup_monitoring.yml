@@ -1,0 +1,106 @@
+# ============================================================
+# playbooks/setup_monitoring.yml
+# Install Prometheus + Grafana + Node Exporter via Helm
+# Run: ansible-playbook -i inventory/hosts.ini playbooks/setup_monitoring.yml
+# ============================================================
+
+---
+- name: Setup Prometheus and Grafana monitoring stack
+  hosts: master
+  become: true
+  vars:
+    kubeconfig: /home/vagrant/.kube/config
+    helm_version: "v3.14.0"
+    grafana_admin_password: "admin@grafana123"   # Override via --extra-vars in CI
+
+  tasks:
+    # ── Install Helm ─────────────────────────────────────────
+    - name: Check if Helm is already installed
+      command: helm version --short
+      register: helm_check
+      ignore_errors: true
+      changed_when: false
+
+    - name: Download and install Helm
+      shell: |
+        curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+      when: helm_check.rc != 0
+
+    # ── Add Helm repos ───────────────────────────────────────
+    - name: Add Prometheus community Helm repo
+      become_user: vagrant
+      command: helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Add Grafana Helm repo
+      become_user: vagrant
+      command: helm repo add grafana https://grafana.github.io/helm-charts
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Update Helm repos
+      become_user: vagrant
+      command: helm repo update
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    # ── kube-prometheus-stack (Prometheus + Grafana + Node Exporter) ──
+    - name: Deploy kube-prometheus-stack
+      become_user: vagrant
+      shell: |
+        helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
+          --namespace monitoring \
+          --create-namespace \
+          --set grafana.adminPassword="{{ grafana_admin_password }}" \
+          --set prometheus.prometheusSpec.retention=15d \
+          --set alertmanager.alertmanagerSpec.storage.volumeClaimTemplate.spec.resources.requests.storage=5Gi \
+          --set grafana.service.type=NodePort \
+          --set grafana.service.nodePort=32000 \
+          --set prometheus.service.type=NodePort \
+          --set prometheus.service.nodePort=32001 \
+          --wait --timeout=10m
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    # ── AlertManager email config ─────────────────────────────
+    - name: Create AlertManager email config secret
+      become_user: vagrant
+      shell: |
+        kubectl create secret generic alertmanager-monitoring-kube-prometheus-alertmanager \
+          --from-literal=alertmanager.yaml="$(cat /home/vagrant/ansible/templates/alertmanager-config.yml)" \
+          -n monitoring --dry-run=client -o yaml | kubectl apply -f -
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      ignore_errors: true
+
+    # ── Deploy CPU/RAM alert rules ────────────────────────────
+    - name: Copy PrometheusRule manifest to master
+      copy:
+        src: "{{ playbook_dir }}/../templates/prometheus-alert-rules.yml"
+        dest: /tmp/prometheus-alert-rules.yml
+        owner: vagrant
+
+    - name: Apply alert rules
+      become_user: vagrant
+      command: kubectl apply -f /tmp/prometheus-alert-rules.yml -n monitoring
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    # ── Status ───────────────────────────────────────────────
+    - name: Show monitoring stack pods
+      become_user: vagrant
+      command: kubectl get pods -n monitoring
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: monitoring_pods
+
+    - name: Print monitoring pod status
+      debug:
+        var: monitoring_pods.stdout_lines
+
+    - name: Print access information
+      debug:
+        msg:
+          - "Grafana  → http://192.168.56.10:32000  (admin / {{ grafana_admin_password }})"
+          - "Prometheus → http://192.168.56.10:32001"

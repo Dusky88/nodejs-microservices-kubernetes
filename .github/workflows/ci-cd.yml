@@ -1,0 +1,195 @@
+# ============================================================
+# .github/workflows/ci-cd.yml
+# GitHub Actions — Build, Push to Docker Hub, Deploy to K8s
+# Triggers on push to: staging branch only
+# ============================================================
+
+name: CI/CD Pipeline — Staging
+
+on:
+  push:
+    branches:
+      - staging
+  pull_request:
+    branches:
+      - staging
+
+env:
+  DOCKERHUB_USERNAME: dusky88
+  IMAGE_PREFIX: dusky88/nms
+
+jobs:
+
+  # ── JOB 1: Build & Test ──────────────────────────────────────
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies — user-service
+        working-directory: ./user-service
+        run: npm install
+
+      - name: Install dependencies — task-service
+        working-directory: ./task-service
+        run: npm install
+
+      - name: Install dependencies — notification-service
+        working-directory: ./notification-service
+        run: npm install
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  # ── JOB 2: Build & Push Docker Images ───────────────────────
+  build-and-push:
+    name: Build & Push Images
+    runs-on: ubuntu-latest
+    needs: build-and-test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build & Push user-service
+        uses: docker/build-push-action@v5
+        with:
+          context: ./user-service
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}_user-service:staging
+            ${{ env.IMAGE_PREFIX }}_user-service:${{ github.sha }}
+
+      - name: Build & Push task-service
+        uses: docker/build-push-action@v5
+        with:
+          context: ./task-service
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}_task-service:staging
+            ${{ env.IMAGE_PREFIX }}_task-service:${{ github.sha }}
+
+      - name: Build & Push notification-service
+        uses: docker/build-push-action@v5
+        with:
+          context: ./notification-service
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}_notification-service:staging
+            ${{ env.IMAGE_PREFIX }}_notification-service:${{ github.sha }}
+
+      - name: Image push summary
+        run: |
+          echo "✅ Images pushed to Docker Hub:"
+          echo "  - dusky88/nms_user-service:staging"
+          echo "  - dusky88/nms_task-service:staging"
+          echo "  - dusky88/nms_notification-service:staging"
+
+  # ── JOB 3: Deploy to Kubernetes ──────────────────────────────
+  deploy-to-k8s:
+    name: Deploy to Kubernetes (Staging)
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.ref == 'refs/heads/staging'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.29.0'
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG }}" > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Update image tags in K8s manifests
+        run: |
+          sed -i "s|dusky88/nms_user-service:.*|dusky88/nms_user-service:${{ github.sha }}|g" k8s/user-service-deployment.yml
+          sed -i "s|dusky88/nms_task-service:.*|dusky88/nms_task-service:${{ github.sha }}|g" k8s/task-service-deployment.yml
+          sed -i "s|dusky88/nms_notification-service:.*|dusky88/nms_notification-service:${{ github.sha }}|g" k8s/notification-service-deployment.yml
+
+      - name: Deploy to Kubernetes
+        run: |
+          kubectl apply -f k8s/mongodb-deployment.yml -n microservices
+          kubectl apply -f k8s/mongodb-svc.yml -n microservices
+          kubectl apply -f k8s/rabbitmq-configmap.yml -n microservices
+          kubectl apply -f k8s/rabbitmq-statefulset.yml -n microservices
+          kubectl apply -f k8s/rabbitmq-service.yml -n microservices
+          kubectl apply -f k8s/user-service-deployment.yml -n microservices
+          kubectl apply -f k8s/user-service-svc.yml -n microservices
+          kubectl apply -f k8s/task-service-deployment.yml -n microservices
+          kubectl apply -f k8s/task-service-svc.yml -n microservices
+          kubectl apply -f k8s/notification-service-deployment.yml -n microservices
+          kubectl apply -f k8s/notification-service-svc.yml -n microservices
+          kubectl apply -f k8s/ingress.yml -n microservices
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/user-service -n microservices --timeout=120s
+          kubectl rollout status deployment/task-service -n microservices --timeout=120s
+          kubectl rollout status deployment/notification-service -n microservices --timeout=120s
+
+      - name: Show deployment status
+        run: kubectl get all -n microservices
+
+  # ── JOB 4: Database Migration ─────────────────────────────────
+  db-migration:
+    name: Database Migration
+    runs-on: ubuntu-latest
+    needs: deploy-to-k8s
+    if: github.ref == 'refs/heads/staging'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.29.0'
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG }}" > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Run database migration
+        run: |
+          MONGO_POD=$(kubectl get pod -n microservices -l app=mongodb -o jsonpath='{.items[0].metadata.name}')
+          echo "Running migration on pod: $MONGO_POD"
+          kubectl exec -n microservices $MONGO_POD -- mongosh --eval "
+            db = db.getSiblingDB('userdb');
+            db.createCollection('users');
+            db = db.getSiblingDB('taskdb');
+            db.createCollection('tasks');
+            print('Migration completed successfully');
+          "
