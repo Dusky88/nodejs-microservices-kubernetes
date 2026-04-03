@@ -111,7 +111,7 @@ jobs:
   # ── JOB 3: Deploy to Kubernetes ──────────────────────────────
   deploy-to-k8s:
     name: Deploy to Kubernetes (Staging)
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: build-and-push
     if: github.ref == 'refs/heads/staging'
 
@@ -163,7 +163,7 @@ jobs:
   # ── JOB 4: Database Migration ─────────────────────────────────
   db-migration:
     name: Database Migration
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: deploy-to-k8s
     if: github.ref == 'refs/heads/staging'
 
