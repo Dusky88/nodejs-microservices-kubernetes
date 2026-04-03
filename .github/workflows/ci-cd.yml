@@ -119,17 +119,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v3
-        with:
-          version: 'v1.29.0'
-
-      - name: Configure kubeconfig
-        run: |
-          mkdir -p ~/.kube
-          echo "${{ secrets.KUBECONFIG }}" > ~/.kube/config
-          chmod 600 ~/.kube/config
-
       - name: Update image tags in K8s manifests
         run: |
           sed -i "s|dusky88/nms_user-service:.*|dusky88/nms_user-service:${{ github.sha }}|g" k8s/user-service-deployment.yml
@@ -137,27 +126,33 @@ jobs:
           sed -i "s|dusky88/nms_notification-service:.*|dusky88/nms_notification-service:${{ github.sha }}|g" k8s/notification-service-deployment.yml
 
       - name: Deploy to Kubernetes
+        env:
+          KUBECONFIG: /home/vagrant/.kube/config
         run: |
-          kubectl apply -f k8s/mongodb-deployment.yml -n microservices
-          kubectl apply -f k8s/mongodb-svc.yml -n microservices
-          kubectl apply -f k8s/rabbitmq-configmap.yml -n microservices
-          kubectl apply -f k8s/rabbitmq-statefulset.yml -n microservices
-          kubectl apply -f k8s/rabbitmq-service.yml -n microservices
-          kubectl apply -f k8s/user-service-deployment.yml -n microservices
-          kubectl apply -f k8s/user-service-svc.yml -n microservices
-          kubectl apply -f k8s/task-service-deployment.yml -n microservices
-          kubectl apply -f k8s/task-service-svc.yml -n microservices
-          kubectl apply -f k8s/notification-service-deployment.yml -n microservices
-          kubectl apply -f k8s/notification-service-svc.yml -n microservices
-          kubectl apply -f k8s/ingress.yml -n microservices
+          kubectl apply --validate=false -f k8s/mongodb-deployment.yml -n microservices
+          kubectl apply --validate=false -f k8s/mongodb-svc.yml -n microservices
+          kubectl apply --validate=false -f k8s/rabbitmq-configmap.yml -n microservices
+          kubectl apply --validate=false -f k8s/rabbitmq-statefulset.yml -n microservices
+          kubectl apply --validate=false -f k8s/rabbitmq-service.yml -n microservices
+          kubectl apply --validate=false -f k8s/user-service-deployment.yml -n microservices
+          kubectl apply --validate=false -f k8s/user-service-svc.yml -n microservices
+          kubectl apply --validate=false -f k8s/task-service-deployment.yml -n microservices
+          kubectl apply --validate=false -f k8s/task-service-svc.yml -n microservices
+          kubectl apply --validate=false -f k8s/notification-service-deployment.yml -n microservices
+          kubectl apply --validate=false -f k8s/notification-service-svc.yml -n microservices
+          kubectl apply --validate=false -f k8s/ingress.yml -n microservices
 
       - name: Wait for rollout
+        env:
+          KUBECONFIG: /home/vagrant/.kube/config
         run: |
           kubectl rollout status deployment/user-service -n microservices --timeout=120s
           kubectl rollout status deployment/task-service -n microservices --timeout=120s
           kubectl rollout status deployment/notification-service -n microservices --timeout=120s
 
       - name: Show deployment status
+        env:
+          KUBECONFIG: /home/vagrant/.kube/config
         run: kubectl get all -n microservices
 
   # ── JOB 4: Database Migration ─────────────────────────────────
@@ -171,18 +166,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v3
-        with:
-          version: 'v1.29.0'
-
-      - name: Configure kubeconfig
-        run: |
-          mkdir -p ~/.kube
-          echo "${{ secrets.KUBECONFIG }}" > ~/.kube/config
-          chmod 600 ~/.kube/config
-
       - name: Run database migration
+        env:
+          KUBECONFIG: /home/vagrant/.kube/config
         run: |
           MONGO_POD=$(kubectl get pod -n microservices -l app=mongodb -o jsonpath='{.items[0].metadata.name}')
           echo "Running migration on pod: $MONGO_POD"
