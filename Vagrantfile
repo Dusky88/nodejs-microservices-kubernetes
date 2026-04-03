@@ -66,8 +66,8 @@ EOF
 
     master.vm.provider "virtualbox" do |vb|
       vb.name   = "k8s-master"
-      vb.memory = "2048"
-      vb.cpus   = 2
+      vb.memory = "4096"
+      vb.cpus   = 4
       vb.customize ["modifyvm", :id, "--natdnshostresolver1", "on"]
       vb.customize ["modifyvm", :id, "--ioapic", "on"]
     end
