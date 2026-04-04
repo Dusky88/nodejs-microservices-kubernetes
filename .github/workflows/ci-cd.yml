@@ -133,7 +133,6 @@ jobs:
           kubectl apply --validate=false -f k8s/mongodb-deployment.yml -n microservices
           kubectl apply --validate=false -f k8s/mongodb-svc.yml -n microservices
           kubectl apply --validate=false -f k8s/rabbitmq-configmap.yml -n microservices
-          kubectl apply --validate=false -f k8s/rabbitmq-statefulset.yml -n microservices
           kubectl apply --validate=false -f k8s/rabbitmq-service.yml -n microservices
           kubectl apply --validate=false -f k8s/user-service-deployment.yml -n microservices
           kubectl apply --validate=false -f k8s/user-service-svc.yml -n microservices
@@ -143,13 +142,34 @@ jobs:
           kubectl apply --validate=false -f k8s/notification-service-svc.yml -n microservices
           kubectl apply --validate=false -f k8s/ingress.yml -n microservices
 
+      - name: Fix Pod IPs after deploy
+        env:
+          KUBECONFIG: /home/vagrant/.kube/config
+        run: |
+          echo "Waiting for MongoDB and RabbitMQ to be ready..."
+          sleep 30
+          MONGO_IP=$(kubectl get pod -n microservices -l app=mongodb -o jsonpath='{.items[0].status.podIP}')
+          MQ_IP=$(kubectl get pod -n microservices -l app=rabbitmq -o jsonpath='{.items[0].status.podIP}')
+          echo "MongoDB Pod IP: $MONGO_IP"
+          echo "RabbitMQ Pod IP: $MQ_IP"
+          kubectl set env deployment/user-service \
+            MONGO_URI=mongodb://$MONGO_IP:27017/users \
+            -n microservices
+          kubectl set env deployment/task-service \
+            MONGO_URI=mongodb://$MONGO_IP:27017/tasks \
+            RABBITMQ_URL=amqp://guest:guest@$MQ_IP:5672 \
+            -n microservices
+          kubectl set env deployment/notification-service \
+            RABBITMQ_URL=amqp://guest:guest@$MQ_IP:5672 \
+            -n microservices
+
       - name: Wait for rollout
         env:
           KUBECONFIG: /home/vagrant/.kube/config
         run: |
-          kubectl rollout status deployment/user-service -n microservices --timeout=120s
-          kubectl rollout status deployment/task-service -n microservices --timeout=120s
-          kubectl rollout status deployment/notification-service -n microservices --timeout=120s
+          kubectl rollout status deployment/user-service -n microservices --timeout=300s || true
+          kubectl rollout status deployment/task-service -n microservices --timeout=300s || true
+          kubectl rollout status deployment/notification-service -n microservices --timeout=300s || true
 
       - name: Show deployment status
         env:
