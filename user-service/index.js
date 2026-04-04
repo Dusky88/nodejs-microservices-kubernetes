@@ -3,26 +3,42 @@ const mongoose = require("mongoose");
 const bodyParser = require("body-parser");
 
 const app = express();
-const port = 3001;
+const port = process.env.PORT || 3001;
+const MONGO_URI = process.env.MONGO_URI || "mongodb://mongo:27017/users";
 
 app.use(bodyParser.json());
 
-mongoose
-    // .connect("mongodb://localhost:27017/users")
-    .connect("mongodb://mongo:27017/users") // Updated for Docker Compose
-    .then(() => {
-        console.log("Connected to MongoDB");
-    })
-    .catch((err) => {
-        console.error("Failed to connect to MongoDB", err);
-    });
+// ── MongoDB connection with retry ────────────────────────────
+async function connectDB(retries = 10, delay = 5000) {
+    try {
+        await mongoose.connect(MONGO_URI);
+        console.log("Connected to MongoDB at:", MONGO_URI);
+    } catch (err) {
+        console.error("Failed to connect to MongoDB, retrying...", err.message);
+        if (retries > 0) {
+            console.log(`Retrying in ${delay}ms... (${retries} retries left)`);
+            setTimeout(() => connectDB(retries - 1, delay), delay);
+        } else {
+            console.error("Max retries reached. Exiting.");
+            process.exit(1);
+        }
+    }
+}
 
+connectDB();
+
+// ── Schema ───────────────────────────────────────────────────
 const UserSchema = new mongoose.Schema({
     name: String,
     email: String,
 });
 
 const User = mongoose.model("User", UserSchema);
+
+// ── Routes ───────────────────────────────────────────────────
+app.get("/health", (req, res) => {
+    res.status(200).json({ status: "ok" });
+});
 
 app.get("/api/users", async (req, res) => {
     try {
@@ -44,6 +60,29 @@ app.post("/api/users", async (req, res) => {
     }
 });
 
+app.put("/api/users/:id", async (req, res) => {
+    try {
+        const { name, email } = req.body;
+        const user = await User.findByIdAndUpdate(
+            req.params.id,
+            { name, email },
+            { new: true }
+        );
+        res.status(200).json(user);
+    } catch (err) {
+        res.status(500).json({ error: "Failed to update user" });
+    }
+});
+
+app.delete("/api/users/:id", async (req, res) => {
+    try {
+        await User.findByIdAndDelete(req.params.id);
+        res.status(200).json({ message: "User deleted" });
+    } catch (err) {
+        res.status(500).json({ error: "Failed to delete user" });
+    }
+});
+
 app.delete("/api/users/all", async (req, res) => {
     try {
         await User.deleteMany({});
@@ -53,7 +92,9 @@ app.delete("/api/users/all", async (req, res) => {
     }
 });
 
+// ── Start server ─────────────────────────────────────────────
 app.listen(port, () => {
     console.log(`User service listening at http://localhost:${port}`);
 });
+
 module.exports = app;
