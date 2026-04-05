@@ -13,6 +13,8 @@ spec:
       labels:
         app: notification-service
     spec:
+      nodeSelector:
+        db: mongodb
       containers:
         - name: notification-service
           image: dusky88/nms_notification-service:latest
@@ -20,17 +22,8 @@ spec:
             - containerPort: 3003
           env:
             - name: RABBITMQ_URL
-              value: "amqp://guest:guest@rabbitmq.microservices.svc.cluster.local:5672"
+              value: "amqp://guest:guest@rabbitmq:5672"
             - name: PORT
               value: "3003"
             - name: NODE_ENV
               value: "production"
-          readinessProbe:
-            exec:
-              command:
-                - node
-                - -e
-                - "require('net').connect(5672, 'rabbitmq.microservices.svc.cluster.local')"
-            initialDelaySeconds: 15
-            periodSeconds: 10
-            failureThreshold: 5
